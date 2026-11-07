@@ -140,14 +140,20 @@ appelée avec (instance 0, id de méthode, tampon d'entrée). `tools/linux_probe
   et power-profiles-daemon (widget batterie de KDE) choisit `low-power` (Éco) pour « Économie d'énergie »
   et `performance` (Turbo) pour « Performance ».
 - Ventilateurs (WMI direct, codes NitroSense) : Max → ~7300 (CPU) / ~7500 (GPU) tr/min ;
-  Perso 30 % → ~3750 ; 70 % → ~5800 ; « GPU auto » fonctionne ; retour Auto en ~4 s.
+  Perso ≤ 35 % → palier minimum ~2400 ; 60 % → ~4800 ; 70 % → ~5800 (même chose en Par défaut
+  et en Performance) ; « GPU auto » fonctionne ; retour Auto en ~4 s.
   Au repos et à froid, les ventilateurs s'arrêtent (0 tr/min) en Auto.
   GetGamingFanBehavior / GetGamingFanSpeed : formats confirmés (relus par acer-wmi).
 - Clavier statique (couleur unique, 4 zones de gauche à droite, zone éteinte, luminosité) : **confirmé à l'œil**.
-  Effets dynamiques : acceptés par le BIOS (statut 0) ; rendu à confirmer.
-
-## Points restant à vérifier
-
-1. Rendu des effets dynamiques (octets 8-15 du tampon de SetGamingKBBacklight supposés nuls).
-2. Extinction réelle du clavier après 30 s, et effet du champ luminosité = 0 réécrit par SetFunction.
-3. Limite de charge 80 % : écriture et relecture (indices de sortie de BatteryControl).
+  SetGamingLEDBehavior (10) est **refusé** par ce BIOS (statut 0x01) : une zone est éteinte en la
+  peignant en noir, ce qui suffit (confirmé à l'œil).
+- Effets dynamiques onde, respiration, déplacement, zoom, néon : **confirmés à l'œil**
+  (octets 8-15 du tampon à zéro).
+- Extinction après 30 s (APGeAction) : activée → le clavier s'éteint après ~30 s sans frappe et se
+  rallume à la frappe ; désactivée → reste allumé. Réécrire le champ luminosité à 0 n'a pas d'effet visible.
+- Limite de charge 80 % (BatteryControl) : écriture acceptée, relecture conforme
+  (octet 3 = mode santé). Arrêt effectif de la charge à 80 % non observé (batterie déjà à 100 %).
+- Veille (S3, `mem_sleep` = deep) : le BIOS garde le mode, les ventilateurs Perso et les couleurs du
+  clavier. Le service détecte la sortie de veille (écart CLOCK_BOOTTIME − CLOCK_MONOTONIC) et réapplique.
+- Touche NitroSense : aucun événement visible sous Linux (ni touche X11, ni « Unknown key » d'acer-wmi,
+  ni changement de mode).

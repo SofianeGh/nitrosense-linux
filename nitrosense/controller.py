@@ -33,7 +33,9 @@ DEFAULT_CONFIG = {
 # (power-profiles-daemon restores its own mode at boot, the firmware may reset
 # it on resume). After that, a mode chosen elsewhere (KDE, mode key) is kept.
 ENFORCE_SECONDS = 20.0
-RESUME_GAP_SECONDS = 5.0
+# boottime - monotonic only grows while suspended, so a small threshold is safe
+# (a 6 s suspend left only ~4 s of gap on the real laptop).
+RESUME_GAP_SECONDS = 1.0
 PERFORMANCE_PROFILES = ("performance", "turbo")
 
 

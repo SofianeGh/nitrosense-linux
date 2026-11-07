@@ -1,9 +1,11 @@
 #!/bin/sh
 # systemd-sleep hook: re-apply the NitroSense Linux settings after suspend/hibernate
 # (the firmware may reset the fans and the keyboard lighting on resume).
+# Run inline: a background job would be killed with systemd-suspend.service.
+# The daemon also detects the resume by itself; this is a second safety net.
 case "$1" in
     post)
-        (sleep 2; /usr/local/bin/nitrosense-cli reapply >/dev/null 2>&1) &
+        timeout 15 /usr/local/bin/nitrosense-cli reapply >/dev/null 2>&1 || true
         ;;
 esac
 exit 0

@@ -76,6 +76,8 @@ Désinstaller : `sudo bash uninstall.sh` (ajouter `--purge` pour effacer aussi l
 - **Mode Performance grisé** : brancher le secteur (règle de NitroSense), ou mettre
   `"performance_requires_ac": false` dans `/etc/nitrosense/config.json`.
 - **Fenêtre impossible à déplacer (Wayland)** : lancer `nitrosense --native-frame`.
+- **Touche NitroSense** : elle n'envoie rien sous Linux (testé sur l'AN515-58). Pour un raccourci,
+  créer un raccourci global dans les réglages du bureau qui lance `nitrosense`.
 - **Widget batterie de KDE / GNOME (power-profiles-daemon)** : il change aussi le mode. Le service suit
   ces changements (« Performance » de KDE = Turbo, affiché sous les boutons de mode) et remplace
   « Économie d'énergie » (Éco, non géré par ce BIOS) par Silencieux (`"eco_to_quiet": false` pour l'empêcher).

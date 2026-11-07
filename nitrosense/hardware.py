@@ -54,6 +54,9 @@ class Hardware:
         self.sensors = sensors or Sensors(paths)
         self.caps: dict = {}
         self._profile_map: dict[str, str] = {}
+        # BIOS V2.21 refuses SetGamingLEDBehavior (status 0x01); zones are
+        # turned off by painting them black, so stop sending it after a refusal.
+        self._led_behavior_ok = True
 
     # ------------------------------------------------------------------ utils
     def _hotkey(self) -> int:
@@ -302,10 +305,12 @@ class Hardware:
             for index, zone in enumerate(zones):
                 color = zone["color"] if zone.get("on", True) else "#000000"
                 self._wmi_set(W.SET_GAMING_RGB_KB, W.rgb_zone(W.zone_bit(index), color))
-            try:
-                self._wmi_set(W.SET_GAMING_LED_BEHAVIOR, W.zones_enable([z.get("on", True) for z in zones]))
-            except HardwareError as exc:  # zones are already blacked out above
-                log.warning("SetGamingLEDBehavior refusé : %s", exc)
+            if self._led_behavior_ok:
+                try:
+                    self._wmi_set(W.SET_GAMING_LED_BEHAVIOR, W.zones_enable([z.get("on", True) for z in zones]))
+                except HardwareError as exc:  # zones are already blacked out above
+                    self._led_behavior_ok = False
+                    log.info("SetGamingLEDBehavior refusé, plus envoyé (zones éteintes en noir) : %s", exc)
             return
         self._kb_backlight(W.kb_backlight_payload(
             kb.get("effect", "wave"), brightness=brightness, speed=int(kb.get("speed", 5)),

@@ -222,6 +222,24 @@ class ProfileSetElsewhere(Base):
         self.assertEqual(self.fw.fan_modes, {"cpu": W.FAN_MODE_CUSTOM, "gpu": W.FAN_MODE_CUSTOM})
         self.assertEqual(self.fw.fan_speeds, {"cpu": 65, "gpu": 75})
 
+    def test_short_suspend_is_detected(self):
+        self.ok("set_fan", mode="max")
+        self.clock.advance(60)
+        self.ctl.tick()
+        self.fw.fan_modes = {"cpu": W.FAN_MODE_AUTO, "gpu": W.FAN_MODE_AUTO}
+        self.clock.advance(2, suspended=4)  # a 6 s suspend seen as ~4 s of gap
+        self.ctl.tick()
+        self.assertEqual(self.fw.fan_modes, {"cpu": W.FAN_MODE_MAX, "gpu": W.FAN_MODE_MAX})
+
+    def test_no_resume_without_suspend(self):
+        self.ok("set_fan", mode="max")
+        self.clock.advance(60)
+        self.ctl.tick()
+        self.fw.fan_modes = {"cpu": W.FAN_MODE_AUTO, "gpu": W.FAN_MODE_AUTO}
+        self.clock.advance(2)
+        self.ctl.tick()
+        self.assertEqual(self.fw.fan_modes["cpu"], W.FAN_MODE_AUTO)
+
 
 class WmiOnlyProfiles(Base):
     platform_profile = False
@@ -315,6 +333,15 @@ class Keyboard(Base):
         st = self.ok("status")
         self.assertTrue(st["keyboard_set"])
         self.assertEqual(st["keyboard"]["zones"][1]["color"], "#00FF00")
+
+    def test_led_behavior_refused_once_then_skipped(self):
+        # The real BIOS V2.21 answers status 0x01 to SetGamingLEDBehavior.
+        self.fw.fail_methods.add(W.SET_GAMING_LED_BEHAVIOR)
+        zones = [{"on": True, "color": "#FF0000"}] * 3 + [{"on": False, "color": "#FFFFFF"}]
+        self.ok("set_keyboard", keyboard=self.kb(zones=zones))
+        self.ok("set_keyboard", keyboard=self.kb(zones=zones))
+        self.assertEqual(len(self.fw.calls_for(W.SET_GAMING_LED_BEHAVIOR)), 1)
+        self.assertEqual(self.fw.zone_colors[3], (0, 0, 0))
 
     def test_effect(self):
         self.ok("set_keyboard", keyboard=self.kb(mode="effect", effect="wave", speed=7,
