@@ -23,6 +23,11 @@ Les commandes envoyées au BIOS sont celles de NitroSense 3.1, relevées sur ce 
 
 Non repris : son DTS, Planet9, overclocking GPU, changement du MUX (à faire depuis Windows).
 
+**Mode Performance sous Linux** : le BIOS reçoit exactement la même commande que sous Windows
+(ventilateurs plus rapides), mais le CPU est déjà au maximum en mode Par défaut sous Linux, et la
+carte graphique reste limitée à 80 W tant que le service NVIDIA `nvidia-powerd` (Dynamic Boost)
+n'est pas installé. Mesures : [docs/REVERSE_ENGINEERING.md](docs/REVERSE_ENGINEERING.md).
+
 ## Architecture
 
 - `nitrosensed` : service root (systemd). Seul à toucher le matériel. Socket `/run/nitrosense/nitrosense.sock`,

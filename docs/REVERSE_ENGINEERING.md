@@ -155,5 +155,20 @@ appelée avec (instance 0, id de méthode, tampon d'entrée). `tools/linux_probe
   (octet 3 = mode santé). Arrêt effectif de la charge à 80 % non observé (batterie déjà à 100 %).
 - Veille (S3, `mem_sleep` = deep) : le BIOS garde le mode, les ventilateurs Perso et les couleurs du
   clavier. Le service détecte la sortie de veille (écart CLOCK_BOOTTIME − CLOCK_MONOTONIC) et réapplique.
+- Effet réel des modes (même charge, ventilateurs Auto, secteur) :
+
+  | Mode | CPU 12 processus (travail/s, MHz, °C) | GPU hors écran (img/s, W, MHz) | Ventilateurs sous charge |
+  |---|---|---|---|
+  | Silencieux | 2 629, 972 MHz, 44 °C | — | ~2500 / 2650 |
+  | Par défaut | 9 071, 3191 MHz, 71 °C | 309, 74 W, 2480 MHz | ~2800-2950 / 3050-3250 |
+  | Performance | 8 949, 3203 MHz, 76 °C | 309, 75 W, 2475 MHz | ~3500 / 3850-3900 |
+  | Turbo | 8 903, 3145 MHz, 77 °C | 309, 75 W, 2475 MHz | ~3500 / 3800-3950 |
+
+  Le BIOS applique bien le mode : Silencieux bride fortement le CPU, Performance et Turbo montent la
+  courbe des ventilateurs. Mais sous Linux, Par défaut donne déjà la fréquence CPU maximale (pas de
+  thermald/DPTF ; limites RAPL à 115 W dans tous les modes), donc Performance n'ajoute rien au CPU.
+  Côté GPU, la limite reste à **80 W dans tous les modes** (max matériel 140 W) : le Dynamic Boost de
+  NVIDIA demande le service `nvidia-powerd` (paquet `nvidia-powerd`, non installé ici). Enfin, l'OC GPU
+  (+100 / +200 MHz) que NitroSense ajoute en Performance sous Windows n'est pas reproduit.
 - Touche NitroSense : aucun événement visible sous Linux (ni touche X11, ni « Unknown key » d'acer-wmi,
   ni changement de mode).
