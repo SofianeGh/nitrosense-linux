@@ -209,7 +209,7 @@ class MainWindow(QtWidgets.QWidget):
         layout.addLayout(boxes)
         layout.addSpacing(8)
         self.mode_buttons = {}
-        group = QtWidgets.QButtonGroup(self)
+        group = self.mode_group = QtWidgets.QButtonGroup(self)
         for index, (key, text, icon) in enumerate(PROFILES):
             button = ChoiceButton(text, icon, separator=index < len(PROFILES) - 1)
             button.clicked.connect(lambda _=False, k=key: self.on_profile(k))
@@ -315,10 +315,19 @@ class MainWindow(QtWidgets.QWidget):
         blocked = st.get("performance_blocked")
         for key, button in self.mode_buttons.items():
             button.setEnabled(key in profiles and not (key == "performance" and blocked))
+        current = st.get("profile")
         if not self._held("profile"):
+            # A mode chosen outside NitroSense (e.g. Turbo from KDE) has no button:
+            # uncheck them all, which an exclusive group would refuse.
+            self.mode_group.setExclusive(current in self.mode_buttons)
             for key, button in self.mode_buttons.items():
-                button.setChecked(key == st.get("profile"))
-        self.mode_note.setText(blocked or ("" if profiles else "Changement de mode indisponible (voir Paramètres)."))
+                button.setChecked(key == current)
+            self.mode_group.setExclusive(True)
+        note = blocked or ("" if profiles else "Changement de mode indisponible (voir Paramètres).")
+        if current and current not in self.mode_buttons:
+            label = {"turbo": "Turbo", "eco": "Éco"}.get(current, current)
+            note = f"Mode actuel : {label} (choisi hors de NitroSense, par ex. widget batterie de KDE)."
+        self.mode_note.setText(note)
 
         cpu = st.get("cpu", {})
         gpu = st.get("gpu", {})

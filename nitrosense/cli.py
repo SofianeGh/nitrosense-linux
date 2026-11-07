@@ -105,7 +105,7 @@ def build_parser() -> argparse.ArgumentParser:
     for name in ("status", "caps", "selftest", "reapply", "ping", "redetect"):
         sub.add_parser(name)
     p = sub.add_parser("profile", help="mode de performance")
-    p.add_argument("name", choices=["quiet", "default", "performance"])
+    p.add_argument("name", choices=["quiet", "default", "performance", "turbo"])
     p = sub.add_parser("fan", help="ventilateurs")
     p.add_argument("mode", choices=["auto", "max", "custom"])
     p.add_argument("--cpu", type=int)

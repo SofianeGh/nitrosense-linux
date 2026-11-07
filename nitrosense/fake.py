@@ -18,7 +18,10 @@ def _u64(value: int) -> bytes:
 
 class FakeTransport(Transport):
     name = "fake"
-    SUPPORTED_OPMODES = (0x00, 0x01, 0x04)  # what NitroSense offers on this laptop
+    # Bitmap 0x33 read on the real BIOS V2.21: Quiet, Default, Performance, Turbo.
+    # The real BIOS also accepts Eco (0x06) although it does not list it.
+    SUPPORTED_OPMODES = (0x00, 0x01, 0x04, 0x05)
+    ACCEPTED_OPMODES = SUPPORTED_OPMODES + (0x06,)
 
     def __init__(self):
         self.calls: list[tuple[str, int, bytes]] = []
@@ -53,7 +56,7 @@ class FakeTransport(Transport):
             return 5880 + offset
         if mode == W.FAN_MODE_CUSTOM:
             return int(self.fan_speeds[fan] * 62) + offset // 2
-        base = {0x00: 2450, 0x01: 3050, 0x04: 3900}.get(self.profile, 3050)
+        base = {0x00: 2450, 0x01: 3050, 0x04: 3900, 0x05: 4300}.get(self.profile, 3050)
         heat = max(0.0, self.temps["cpu" if fan == "cpu" else "gpu"] - 50.0) * 45
         return int(base + heat) + offset
 
@@ -112,7 +115,7 @@ class FakeTransport(Transport):
             return _u64(0)
         if method == W.SET_GAMING_MISC_SETTING:
             index, setting = value & 0xFF, (value >> 8) & 0xFF
-            if index == W.MISC_PLATFORM_PROFILE and setting in self.SUPPORTED_OPMODES:
+            if index == W.MISC_PLATFORM_PROFILE and setting in self.ACCEPTED_OPMODES:
                 self.profile = setting
                 return _u32(0)
             if index == W.MISC_GPU_MODE and setting in (1, 2):

@@ -17,6 +17,21 @@ def nvidia_stub():
     return {"temp": 50.0, "load": 10.0, "mhz": 1500.0}
 
 
+class FakeClock:
+    """(monotonic, boottime) pair; boottime alone advances during a suspend."""
+
+    def __init__(self):
+        self.mono = 1000.0
+        self.boot = 1000.0
+
+    def __call__(self):
+        return self.mono, self.boot
+
+    def advance(self, seconds, suspended=0.0):
+        self.mono += seconds
+        self.boot += seconds + suspended
+
+
 class Base(unittest.TestCase):
     platform_profile = True
     hwmon_fans = True
@@ -26,13 +41,14 @@ class Base(unittest.TestCase):
         self.root = Path(self.tmp.name)
         build_fake_tree(self.root, hwmon_fans=self.hwmon_fans, platform_profile=self.platform_profile)
         self.fw = FakeTransport()
+        self.clock = FakeClock()
         self.state_path = self.root / "state.json"
         self.ctl = self.make_controller(self.fw)
 
     def make_controller(self, fw, config=None):
         paths = Paths(self.root)
         hw = Hardware(paths, fw, config or {}, sensors=Sensors(paths, nvidia_query=nvidia_stub))
-        ctl = Controller(hw, self.state_path, config or {})
+        ctl = Controller(hw, self.state_path, config or {}, clock=self.clock)
         ctl.startup()
         return ctl
 
@@ -59,6 +75,8 @@ class Detection(Base):
         self.assertTrue(caps["model_ok"])
         self.assertEqual(caps["profile"], "sysfs")
         self.assertEqual(caps["profiles"], ["quiet", "default", "performance"])
+        self.assertEqual(caps["extra_profiles"], ["turbo"])
+        self.assertEqual(caps["bios_profiles"], ["quiet", "default", "performance", "turbo"])
         self.assertEqual(caps["fan_rpm"], "hwmon")
         self.assertEqual(caps["fan_control"], "wmi")
         self.assertEqual(caps["keyboard"], "wmi")
@@ -122,7 +140,87 @@ class Profiles(Base):
         self.ok("set_fan", mode="auto")
 
     def test_bad_profile(self):
-        self.fails("set_profile", name="turbo")
+        self.fails("set_profile", name="ludicrous")
+        self.fails("set_profile", name="eco")
+
+    def test_turbo(self):
+        self.ok("set_profile", name="turbo")
+        self.assertEqual(read_text(self.root / "sys/firmware/acpi/platform_profile"), "performance")
+        self.assertEqual(self.ok("status")["profile"], "turbo")
+
+    def test_turbo_needs_ac(self):
+        self.put("sys/class/power_supply/ADP1/online", 0)
+        self.assertIn("secteur", self.fails("set_profile", name="turbo"))
+
+    def test_turbo_refused_when_bios_lacks_it(self):
+        fw = FakeTransport()
+        fw.SUPPORTED_OPMODES = (0x00, 0x01, 0x04)
+        self.ctl = self.make_controller(fw)
+        self.assertEqual(self.ctl.hw.caps["extra_profiles"], [])
+        self.assertIn("non pris en charge", self.fails("set_profile", name="turbo"))
+
+
+class ProfileSetElsewhere(Base):
+    """KDE / power-profiles-daemon or the mode key change platform_profile."""
+
+    def profile(self):
+        return read_text(self.root / "sys/firmware/acpi/platform_profile")
+
+    def test_eco_is_replaced_by_quiet(self):
+        self.ok("set_fan", mode="custom", cpu=40, gpu=40)
+        self.put("sys/firmware/acpi/platform_profile", "low-power")
+        self.ctl.tick()
+        self.assertEqual(self.profile(), "quiet")
+        self.assertEqual(self.fw.fan_modes, {"cpu": W.FAN_MODE_AUTO, "gpu": W.FAN_MODE_AUTO})
+
+    def test_eco_kept_when_disabled_in_config(self):
+        self.ctl = self.make_controller(FakeTransport(), {"eco_to_quiet": False})
+        self.put("sys/firmware/acpi/platform_profile", "low-power")
+        self.ctl.tick()
+        self.assertEqual(self.profile(), "low-power")
+
+    def test_untouched_profile_is_not_followed(self):
+        self.clock.advance(60)
+        self.put("sys/firmware/acpi/platform_profile", "quiet")
+        self.ctl.tick()
+        self.assertIsNone(self.ctl.state["profile"])
+        self.assertEqual(self.profile(), "quiet")
+
+    def test_change_after_boot_is_followed(self):
+        self.ok("set_profile", name="performance")
+        self.clock.advance(60)
+        self.put("sys/firmware/acpi/platform_profile", "performance")  # KDE "Performance"
+        self.ctl.tick()
+        self.assertEqual(self.ctl.state["profile"], "turbo")
+        self.assertEqual(self.profile(), "performance")
+        # Saved: survives a restart of the service.
+        self.put("sys/firmware/acpi/platform_profile", "balanced")
+        self.ctl = self.make_controller(FakeTransport())
+        self.assertEqual(self.profile(), "performance")
+
+    def test_change_right_after_boot_is_reverted(self):
+        self.ok("set_profile", name="performance")
+        self.ctl = self.make_controller(FakeTransport())  # service (re)start
+        self.clock.advance(5)
+        self.put("sys/firmware/acpi/platform_profile", "balanced")  # power-profiles-daemon
+        self.ctl.tick()
+        self.assertEqual(self.profile(), "balanced-performance")
+        self.assertEqual(self.ctl.state["profile"], "performance")
+
+    def test_resume_reapplies_everything(self):
+        self.ok("set_profile", name="performance")
+        self.ok("set_fan", mode="custom", cpu=65, gpu=75)
+        self.clock.advance(60)
+        self.ctl.tick()
+        # Suspend for 10 min; the firmware forgets the fans and the mode.
+        self.fw.fan_modes = {"cpu": W.FAN_MODE_AUTO, "gpu": W.FAN_MODE_AUTO}
+        self.put("sys/firmware/acpi/platform_profile", "balanced")
+        self.clock.advance(2, suspended=600)
+        self.ctl.tick()
+        self.assertEqual(self.profile(), "balanced-performance")
+        self.assertEqual(self.ctl.state["profile"], "performance")
+        self.assertEqual(self.fw.fan_modes, {"cpu": W.FAN_MODE_CUSTOM, "gpu": W.FAN_MODE_CUSTOM})
+        self.assertEqual(self.fw.fan_speeds, {"cpu": 65, "gpu": 75})
 
 
 class WmiOnlyProfiles(Base):

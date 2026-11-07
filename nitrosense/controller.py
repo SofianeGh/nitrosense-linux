@@ -6,10 +6,11 @@ from __future__ import annotations
 import copy
 import logging
 import threading
+import time
 
 from . import __version__
 from . import wmi_codes as W
-from .hardware import PROFILES, Hardware, HardwareError
+from .hardware import ALL_PROFILES, Hardware, HardwareError
 from .paths import load_json, save_json_atomic
 from .transport import WmiError
 
@@ -23,7 +24,27 @@ DEFAULT_CONFIG = {
     "performance_requires_ac": True,
     "min_battery_for_performance": 40,
     "thermal_guard": {"enabled": True, "cpu_trip": 92, "gpu_trip": 87, "cpu_clear": 80, "gpu_clear": 75},
+    # KDE's "power saver" makes acer-wmi write Eco (0x06), a mode this BIOS
+    # does not list as supported: switch to Quiet instead.
+    "eco_to_quiet": True,
 }
+
+# After boot or resume, the saved mode wins over other programs for this long
+# (power-profiles-daemon restores its own mode at boot, the firmware may reset
+# it on resume). After that, a mode chosen elsewhere (KDE, mode key) is kept.
+ENFORCE_SECONDS = 20.0
+RESUME_GAP_SECONDS = 5.0
+PERFORMANCE_PROFILES = ("performance", "turbo")
+
+
+def read_clocks() -> tuple[float, float]:
+    """(monotonic, boottime): only boottime keeps counting during suspend."""
+    mono = time.monotonic()
+    try:
+        boot = time.clock_gettime(time.CLOCK_BOOTTIME)
+    except (AttributeError, OSError):
+        boot = mono
+    return mono, boot
 
 DEFAULT_KEYBOARD = {
     "mode": "static",
@@ -123,11 +144,15 @@ def normalize_keyboard(data: dict) -> dict:
 
 
 class Controller:
-    def __init__(self, hw: Hardware, state_path, config: dict | None = None, on_status=None):
+    def __init__(self, hw: Hardware, state_path, config: dict | None = None, on_status=None,
+                 clock=read_clocks):
         self.hw = hw
         self.state_path = state_path
         self.config = merge_config(config)
         self.on_status = on_status
+        self.clock = clock
+        self._last_clock: tuple[float, float] | None = None
+        self._enforce_until = 0.0
         self.lock = threading.RLock()
         saved = load_json(state_path, {}) if state_path else {}
         self.state = copy.deepcopy(DEFAULT_STATE)
@@ -150,7 +175,10 @@ class Controller:
                      caps.get("profile"), caps.get("fan_rpm"), caps.get("fan_control"),
                      caps.get("keyboard"), caps.get("battery_limit"), caps.get("backlight_timeout"))
             self._refresh_cache()
-            return self.reapply("démarrage")
+            errors = self.reapply("démarrage")
+            self._last_clock = self.clock()
+            self._enforce_until = self._last_clock[0] + ENFORCE_SECONDS
+            return errors
 
     def shutdown(self) -> None:
         """Daemon stop: never leave the fans on a manual setting."""
@@ -174,8 +202,8 @@ class Controller:
         self.cached_battery = self.hw.get_battery_limit()
 
     def _power_rule(self, target: str, power: dict | None = None) -> str | None:
-        """NitroSense only allows Performance on AC with >= 40% battery."""
-        if target != "performance" or not self.config.get("performance_requires_ac", True):
+        """NitroSense only allows Performance on AC with >= 40% battery (Turbo too)."""
+        if target not in PERFORMANCE_PROFILES or not self.config.get("performance_requires_ac", True):
             return None
         power = power or self.hw.sensors.power()
         if power.get("ac") is False:
@@ -226,10 +254,53 @@ class Controller:
             log.info("Réglages réappliqués (%s)%s", reason, f" avec {len(errors)} erreur(s)" if errors else "")
         return errors
 
+    # ------------------------------------------------- mode set by others
+    def _check_resume(self) -> None:
+        mono, boot = self.clock()
+        if self._last_clock is not None:
+            slept = (boot - self._last_clock[1]) - (mono - self._last_clock[0])
+            if slept > RESUME_GAP_SECONDS:
+                log.info("Sortie de veille détectée (%.0f s)", slept)
+                self.reapply("réveil")
+                self._enforce_until = mono + ENFORCE_SECONDS
+        self._last_clock = (mono, boot)
+
+    def _follow_profile(self) -> None:
+        """Keep the mode coherent when KDE / power-profiles-daemon or the mode
+        key changes it behind our back."""
+        if self.hw.caps.get("profile", "none") == "none":
+            return
+        current, _ = self.hw.get_profile()
+        bios = self.hw.caps.get("bios_profiles")
+        if (current == "eco" and self.config.get("eco_to_quiet", True) and bios is not None
+                and "eco" not in bios and self.hw.can_set_profile("quiet")):
+            self.hw.set_profile("quiet")
+            log.info("Mode Éco (non pris en charge par ce BIOS) remplacé par Silencieux")
+            current = "quiet"
+        saved = self.state["profile"]
+        if saved is None or current == saved or not self.hw.can_set_profile(current):
+            return
+        if self._last_clock is not None and self._last_clock[0] < self._enforce_until \
+                and self.hw.can_set_profile(saved) and not self._power_rule(saved):
+            self.hw.set_profile(saved)
+            log.info("Mode %s rétabli (changé par un autre programme juste après le démarrage ou la veille)",
+                     saved)
+            return
+        self.state["profile"] = current
+        self._save()
+        log.info("Mode changé hors de NitroSense (KDE, touche de mode...) : %s", current)
+
     # --------------------------------------------------------- thermal guard
     def tick(self) -> None:
-        """Called every 2 s by the daemon: NitroSense rules + thermal safety net."""
+        """Called every 2 s by the daemon: resume detection, mode set by other
+        programs, NitroSense rules and the thermal safety net."""
         with self.lock:
+            try:
+                self._check_resume()
+                self._follow_profile()
+            except (HardwareError, WmiError, OSError) as exc:
+                self.last_error = str(exc)
+                log.warning("tick (mode) : %s", exc)
             if self.hw.caps.get("fan_control", "none") == "none":
                 return
             fan = self.state["fan"]
@@ -334,8 +405,10 @@ class Controller:
 
     def cmd_set_profile(self, req, uid):
         name = req.get("name")
-        if name not in PROFILES:
-            raise UserError(f"Mode inconnu : {name!r} (quiet, default, performance)")
+        if name not in ALL_PROFILES:
+            raise UserError(f"Mode inconnu : {name!r} (quiet, default, performance, turbo)")
+        if not self.hw.can_set_profile(name):
+            raise UserError(f"Mode {name} non pris en charge ici")
         blocked = self._power_rule(name)
         if blocked:
             raise UserError(blocked)

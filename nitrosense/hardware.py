@@ -22,12 +22,18 @@ from .transport import Transport, WmiError
 log = logging.getLogger("nitrosense.hw")
 
 PROFILES = ("quiet", "default", "performance")
+# Turbo (0x05) is not offered by NitroSense on this laptop, but the BIOS
+# supports it (bitmap 0x33) and KDE / power-profiles-daemon selects it as
+# "performance". It is accepted so that such a choice can be kept.
+EXTRA_PROFILES = ("turbo",)
+ALL_PROFILES = PROFILES + EXTRA_PROFILES
 PROFILE_TO_SYSFS = {
     "quiet": ("quiet", "low-power"),
     "default": ("balanced",),
     # acer-wmi maps balanced-performance to the 0x04 "Performance" mode that
     # NitroSense uses here; plain "performance" is Turbo (0x05) in that driver.
     "performance": ("balanced-performance", "performance"),
+    "turbo": ("performance",),
 }
 SYSFS_TO_PROFILE = {
     "low-power": "eco", "quiet": "quiet", "cool": "quiet", "balanced": "default",
@@ -116,21 +122,27 @@ class Hardware:
 
         profile_file, choices_file = self._profile_files()
         self._profile_map = {}
+        # Modes the BIOS says it supports (None when WMI cannot be read).
+        bios_profiles = self._wmi_supported_profiles() if wmi else None
+        caps["bios_profiles"] = bios_profiles
         if profile_file is not None:
             choices = (read_text(choices_file, "") or "").split()
-            for name in PROFILES:
+            for name in ALL_PROFILES:
+                if name in EXTRA_PROFILES and bios_profiles is not None and name not in bios_profiles:
+                    continue
                 for candidate in PROFILE_TO_SYSFS[name]:
-                    if candidate in choices:
+                    if candidate in choices and candidate not in self._profile_map.values():
                         self._profile_map[name] = candidate
                         break
             caps.update(profile="sysfs", profile_choices=choices,
-                        profiles=[n for n in PROFILES if n in self._profile_map])
+                        profiles=[n for n in PROFILES if n in self._profile_map],
+                        extra_profiles=[n for n in EXTRA_PROFILES if n in self._profile_map])
         elif wmi and self._wmi_profile() is not None:
-            supported = self._wmi_supported_profiles()
-            profiles = [n for n in PROFILES if supported is None or n in supported]
-            caps.update(profile="wmi", profile_choices=supported or [], profiles=profiles)
+            caps.update(profile="wmi", profile_choices=bios_profiles or [],
+                        profiles=[n for n in PROFILES if bios_profiles is None or n in bios_profiles],
+                        extra_profiles=[n for n in EXTRA_PROFILES if bios_profiles and n in bios_profiles])
         else:
-            caps.update(profile="none", profile_choices=[], profiles=[])
+            caps.update(profile="none", profile_choices=[], profiles=[], extra_profiles=[])
 
         if self.sensors.acer_fan_rpm():
             caps["fan_rpm"] = "hwmon"
@@ -181,8 +193,11 @@ class Hardware:
             return name, name
         return None, None
 
+    def can_set_profile(self, name: str | None) -> bool:
+        return name in (self.caps.get("profiles") or []) + (self.caps.get("extra_profiles") or [])
+
     def set_profile(self, name: str) -> None:
-        if name not in PROFILES:
+        if name not in ALL_PROFILES:
             raise HardwareError(f"Mode inconnu : {name}")
         self._check_writes()
         backend = self.caps.get("profile")
