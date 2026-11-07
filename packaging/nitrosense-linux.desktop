@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=NitroSense Linux
+GenericName=Ventilateurs et performances
+Comment=Ventilateurs, modes de performance, éclairage du clavier (Acer Nitro AN515-58)
+Exec=nitrosense
+Icon=nitrosense-linux
+Terminal=false
+Categories=System;Settings;HardwareSettings;
+Keywords=acer;nitro;nitrosense;fan;ventilateur;rgb;clavier;performance;
+StartupWMClass=nitrosense-linux

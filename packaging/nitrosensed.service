@@ -1,0 +1,22 @@
+[Unit]
+Description=NitroSense Linux - ventilateurs, modes et clavier (Acer Nitro AN515-58)
+After=systemd-modules-load.service
+Wants=systemd-modules-load.service
+
+[Service]
+Type=simple
+Environment=PYTHONPATH=/opt/nitrosense-linux
+Environment=PYTHONUNBUFFERED=1
+ExecStartPre=-/usr/bin/env modprobe acpi_call
+ExecStart=/usr/bin/env python3 -m nitrosense.daemon
+RuntimeDirectory=nitrosense
+RuntimeDirectoryMode=0755
+StateDirectory=nitrosense
+Restart=on-failure
+RestartSec=3
+PrivateTmp=yes
+ProtectHome=yes
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target
