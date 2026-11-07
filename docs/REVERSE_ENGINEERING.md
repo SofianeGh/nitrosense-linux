@@ -167,8 +167,18 @@ appelée avec (instance 0, id de méthode, tampon d'entrée). `tools/linux_probe
   Le BIOS applique bien le mode : Silencieux bride fortement le CPU, Performance et Turbo montent la
   courbe des ventilateurs. Mais sous Linux, Par défaut donne déjà la fréquence CPU maximale (pas de
   thermald/DPTF ; limites RAPL à 115 W dans tous les modes), donc Performance n'ajoute rien au CPU.
-  Côté GPU, la limite reste à **80 W dans tous les modes** (max matériel 140 W) : le Dynamic Boost de
-  NVIDIA demande le service `nvidia-powerd` (paquet `nvidia-powerd`, non installé ici). Enfin, l'OC GPU
-  (+100 / +200 MHz) que NitroSense ajoute en Performance sous Windows n'est pas reproduit.
+  Côté GPU, sans le service `nvidia-powerd` (Dynamic Boost), la limite reste à 80 W dans tous les modes.
+  Avec `nvidia-powerd` 550.163.01 (installé le 2026-11-07), la limite suit le mode du BIOS :
+
+  | Mode | Limite GPU au repos | Limite GPU sous charge |
+  |---|---|---|
+  | Silencieux | 80 W | 105 W |
+  | Par défaut | 80 W | 105 W |
+  | Performance | 115 W | **140 W** |
+  | Turbo | 115 W | 140 W |
+
+  (Le test GPU hors écran plafonne à sa fréquence max vers 75 W, donc ses images/s ne changent pas ;
+  un jeu lourd profite de la limite plus haute.) Reste non reproduit : l'OC GPU (+100 / +200 MHz)
+  que NitroSense ajoute en Performance sous Windows.
 - Touche NitroSense : aucun événement visible sous Linux (ni touche X11, ni « Unknown key » d'acer-wmi,
   ni changement de mode).

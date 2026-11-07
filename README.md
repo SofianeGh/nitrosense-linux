@@ -23,10 +23,20 @@ Les commandes envoyées au BIOS sont celles de NitroSense 3.1, relevées sur ce 
 
 Non repris : son DTS, Planet9, overclocking GPU, changement du MUX (à faire depuis Windows).
 
-**Mode Performance sous Linux** : le BIOS reçoit exactement la même commande que sous Windows
-(ventilateurs plus rapides), mais le CPU est déjà au maximum en mode Par défaut sous Linux, et la
-carte graphique reste limitée à 80 W tant que le service NVIDIA `nvidia-powerd` (Dynamic Boost)
-n'est pas installé. Mesures : [docs/REVERSE_ENGINEERING.md](docs/REVERSE_ENGINEERING.md).
+**Mode Performance sous Linux** : le BIOS reçoit exactement la même commande que sous Windows.
+Il monte la courbe des ventilateurs et, avec le service NVIDIA `nvidia-powerd` (Dynamic Boost),
+la limite de la RTX 4060 passe de 105 W (Par défaut) à 140 W. Le CPU, lui, est déjà au maximum en
+mode Par défaut sous Linux. Seul l'OC GPU de NitroSense (+100 / +200 MHz) n'est pas repris.
+Mesures : [docs/REVERSE_ENGINEERING.md](docs/REVERSE_ENGINEERING.md).
+
+Installer `nvidia-powerd` sur Debian / Parrot (même version que le pilote ; le paquet ne fournit
+le service qu'en exemple, et le programme est dans `/usr/sbin`) :
+
+    sudo apt install nvidia-powerd=<version du pilote>
+    sed 's#/usr/bin/nvidia-powerd#/usr/sbin/nvidia-powerd#' /usr/share/doc/nvidia-powerd/examples/nvidia-powerd.service \
+        | sudo tee /etc/systemd/system/nvidia-powerd.service >/dev/null
+    sudo install -m 644 /usr/share/doc/nvidia-powerd/examples/nvidia-dbus.conf /etc/dbus-1/system.d/
+    sudo systemctl daemon-reload && sudo systemctl enable --now nvidia-powerd
 
 ## Architecture
 
