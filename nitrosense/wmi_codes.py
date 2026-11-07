@@ -93,13 +93,15 @@ def fan_speed(fan: str, percent: int) -> int:
 
 
 def fan_speed_query(fan: str) -> int:
-    """Input for GetGamingFanSpeed. Not used by NitroSense: diagnostics only."""
+    """Input for GetGamingFanSpeed (output: status | percent << 8, checked on
+    the real laptop against the acer-wmi pwm readback). Diagnostics only."""
     return FAN_SPEED_ID[fan]
 
 
 def parse_fan_behavior(raw: int) -> dict | None:
-    """Decode GetGamingFanBehavior(0x0009). UNVERIFIED layout (assumed to mirror
-    the setter shifted down by 8 bits); used for diagnostics only."""
+    """Decode GetGamingFanBehavior(0x0009): CPU mode bits 8-9, GPU mode bits
+    14-15. Checked on the real laptop (Auto -> 0x4100) and identical to the
+    acer-wmi driver of Linux 7.1. Diagnostics only."""
     if not status_ok(raw):
         return None
     return {"cpu": (raw >> 8) & 0x3, "gpu": (raw >> 14) & 0x3}
@@ -137,6 +139,8 @@ def parse_sysinfo(raw: int) -> int | None:
 # Operating modes = NitroSense OPMode_Type (Quiet 0, Default 1, Extreme 4,
 # Turbo 5). The Linux acer-wmi driver uses the same values (0x0B index).
 # NitroSense on this laptop shows Quiet / Default / Performance(=4).
+# Read on the real BIOS V2.21: supported bitmap 0x33 = Quiet, Default,
+# Performance, Turbo. Eco (6) is not listed but the BIOS still accepts it.
 # ---------------------------------------------------------------------------
 MISC_GPU_MODE = 0x02
 MISC_GPU_MODE_SUPPORT = 0x09

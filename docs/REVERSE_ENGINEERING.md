@@ -126,9 +126,28 @@ appelée avec (instance 0, id de méthode, tampon d'entrée). `tools/linux_probe
 - Paramètres : touches rémanentes (Windows), touche Windows/menu, unités °C/°F,
   extinction du clavier après 30 s, « GPU distinct seulement ».
 
-## Points à vérifier sous Linux
+## Vérifié sous Linux (2026-11-07, Parrot 7.4, noyau 7.1.13, acpi_call 1.2.2)
 
-1. Octets 8-15 du tampon de SetGamingKBBacklight : lire l'ASL de la méthode 20 (`acpidump` + `iasl -d`).
-2. Format de sortie de GetGamingFanBehavior / GetGamingFanSpeed (non utilisés par NitroSense, diagnostic seulement).
-3. Indices de la sortie de BatteryControl.
-4. Que le profil `0x0B` accepte 0 / 1 / 4 et que le bitmap `0x0A` vaut bien `0x13` sur ce modèle.
+- Méthodes ACPI : `\_SB_.PC00.WMID.WMBH` (AcerGamingFunction), `.WMAA` (APGeAction), `.WMBE` (BatteryControl).
+- Le pilote acer-wmi du noyau 7.1 reconnaît l'AN515-58 (quirk `predator_v4` + `pwm`, sans option) :
+  `platform_profile` et hwmon `acer` (fan1/fan2, temp1/3, **pwm1/pwm2 + pwm*_enable** :
+  0 = max, 1 = perso, 2 = auto ; pwm 0-255 → 0-100 %). Il envoie les mêmes codes WMI que NitroSense.
+- Lectures (`nitrosense-cli selftest`) : capteurs identiques à hwmon ; mode courant ; MUX = 1 (hybride),
+  support MUX = 3 ; APGe `0x00001E0000000000` (délai 30 s activé, champ luminosité = 0) ;
+  batterie `03 00 00 00 00 00 00 00` (santé + calibration disponibles, toutes deux désactivées).
+- **Bitmap des modes `0x0A` = `0x33`** (et non `0x13`) : Silencieux, Par défaut, Performance, **Turbo**.
+  Le BIOS accepte aussi Éco (6) sans l'annoncer. acer-wmi propose les 5 modes quel que soit le bitmap,
+  et power-profiles-daemon (widget batterie de KDE) choisit `low-power` (Éco) pour « Économie d'énergie »
+  et `performance` (Turbo) pour « Performance ».
+- Ventilateurs (WMI direct, codes NitroSense) : Max → ~7300 (CPU) / ~7500 (GPU) tr/min ;
+  Perso 30 % → ~3750 ; 70 % → ~5800 ; « GPU auto » fonctionne ; retour Auto en ~4 s.
+  Au repos et à froid, les ventilateurs s'arrêtent (0 tr/min) en Auto.
+  GetGamingFanBehavior / GetGamingFanSpeed : formats confirmés (relus par acer-wmi).
+- Clavier statique (couleur unique, 4 zones de gauche à droite, zone éteinte, luminosité) : **confirmé à l'œil**.
+  Effets dynamiques : acceptés par le BIOS (statut 0) ; rendu à confirmer.
+
+## Points restant à vérifier
+
+1. Rendu des effets dynamiques (octets 8-15 du tampon de SetGamingKBBacklight supposés nuls).
+2. Extinction réelle du clavier après 30 s, et effet du champ luminosité = 0 réécrit par SetFunction.
+3. Limite de charge 80 % : écriture et relecture (indices de sortie de BatteryControl).
